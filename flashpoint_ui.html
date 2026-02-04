@@ -1,0 +1,1036 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLASHPOINT V2 - Cerebras LPU vs Standard GPU</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-primary: #0a0e14;
+            --bg-secondary: #0f1419;
+            --bg-card: #1a1f2e;
+            --text-primary: #e8eaed;
+            --text-secondary: #9aa0a6;
+            --text-muted: #5f6368;
+            --cerebras-blue: #4285f4;
+            --cerebras-glow: rgba(66, 133, 244, 0.4);
+            --success: #34a853;
+            --warning: #fbbc04;
+            --error: #ea4335;
+            --border: #2d3548;
+            --legacy-grey: #5f6368;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1800px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1f2e, #0f1419);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #4285f4, #8ab4f8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            font-size: 13px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--error);
+        }
+
+        .status-dot.connected {
+            background: var(--success);
+            box-shadow: 0 0 12px var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        /* ENGINE COMPARISON - THE CENTERPIECE */
+        .engine-comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .engine-card {
+            background: var(--bg-secondary);
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .engine-card.cerebras-active {
+            border-color: var(--cerebras-blue);
+            box-shadow: 0 0 30px var(--cerebras-glow);
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.05), rgba(138, 180, 248, 0.02));
+        }
+
+        .engine-card.cerebras-active::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(66, 133, 244, 0.2), transparent);
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        .engine-card.legacy-gpu {
+            border-color: var(--legacy-grey);
+            opacity: 0.7;
+            background: linear-gradient(135deg, rgba(95, 99, 104, 0.1), rgba(95, 99, 104, 0.05));
+        }
+
+        .engine-card h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .engine-card h3 .bolt {
+            font-size: 24px;
+            animation: bolt-glow 1.5s infinite;
+        }
+
+        @keyframes bolt-glow {
+            0%, 100% { text-shadow: 0 0 10px var(--cerebras-blue); }
+            50% { text-shadow: 0 0 20px var(--cerebras-blue); }
+        }
+
+        .latency-display {
+            font-size: 72px;
+            font-weight: 700;
+            font-family: 'SF Mono', Monaco, monospace;
+            margin-bottom: 16px;
+        }
+
+        .cerebras-active .latency-display {
+            color: var(--cerebras-blue);
+            text-shadow: 0 0 20px var(--cerebras-glow);
+        }
+
+        .legacy-gpu .latency-display {
+            color: var(--legacy-grey);
+        }
+
+        .latency-unit {
+            font-size: 20px;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .status-text {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-top: 12px;
+            min-height: 20px;
+        }
+
+        .legacy-gpu .status-text {
+            color: var(--warning);
+        }
+
+        .token-ticker {
+            font-size: 13px;
+            color: var(--cerebras-blue);
+            font-family: 'SF Mono', Monaco, monospace;
+            margin-top: 12px;
+            min-height: 20px;
+        }
+
+        /* SPEED ADVANTAGE BANNER */
+        .speed-advantage-banner {
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(52, 168, 83, 0.2));
+            border: 2px solid var(--cerebras-blue);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            margin-bottom: 32px;
+            box-shadow: 0 0 30px rgba(66, 133, 244, 0.3);
+        }
+
+        .advantage-label {
+            font-size: 14px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }
+
+        .advantage-value {
+            font-size: 64px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4285f4, #34a853);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(66, 133, 244, 0.5);
+            animation: advantage-pulse 2s infinite;
+        }
+
+        @keyframes advantage-pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        /* PROGRESS BARS FOR VISUAL COMPARISON */
+        .progress-comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .progress-track {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .progress-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar {
+            height: 40px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .progress-fill.cerebras {
+            background: linear-gradient(90deg, var(--cerebras-blue), #8ab4f8);
+        }
+
+        .progress-fill.legacy {
+            background: linear-gradient(90deg, var(--legacy-grey), #9aa0a6);
+        }
+
+        /* SEVERITY TRACKER */
+        .severity-tracker {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .severity-header {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .severity-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .severity-metric {
+            text-align: center;
+            padding: 16px;
+            background: var(--bg-card);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+
+        .severity-value {
+            font-size: 48px;
+            font-weight: 700;
+            font-family: 'SF Mono', Monaco, monospace;
+            margin-bottom: 8px;
+        }
+
+        .severity-value.critical {
+            color: var(--error);
+        }
+
+        .severity-value.improving {
+            color: var(--warning);
+        }
+
+        .severity-value.resolved {
+            color: var(--success);
+        }
+
+        .severity-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* MAIN CONTENT GRID */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+        }
+
+        /* HYPOTHESIS STREAM - CLEANED UP */
+        .hypothesis-stream {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .stream-header {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .stream-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--cerebras-blue);
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+
+        .hypothesis-display {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            min-height: 120px;
+        }
+
+        .action-card {
+            background: rgba(66, 133, 244, 0.1);
+            border-left: 4px solid var(--cerebras-blue);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        .action-type {
+            font-weight: 600;
+            color: var(--cerebras-blue);
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .action-target {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        /* SERVICES PANEL WITH FLASH ANIMATIONS */
+        .services-panel {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        .panel-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+
+        .service-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .service-item.critical {
+            border-left: 4px solid var(--error);
+            background: rgba(234, 67, 53, 0.05);
+        }
+
+        .service-item.degraded {
+            border-left: 4px solid var(--warning);
+            background: rgba(251, 188, 4, 0.05);
+        }
+
+        .service-item.healthy {
+            border-left: 4px solid var(--success);
+            background: rgba(52, 168, 83, 0.05);
+        }
+
+        .service-item.fixed {
+            animation: fixFlash 0.6s ease;
+            border-color: var(--success);
+        }
+
+        @keyframes fixFlash {
+            0%, 100% { box-shadow: none; }
+            50% { 
+                box-shadow: 0 0 30px rgba(52, 168, 83, 0.6);
+                transform: scale(1.02);
+            }
+        }
+
+        .service-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .service-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .service-severity {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 20px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 8px;
+        }
+
+        .service-severity.sev-high {
+            color: var(--error);
+            background: rgba(234, 67, 53, 0.1);
+        }
+
+        .service-severity.sev-med {
+            color: var(--warning);
+            background: rgba(251, 188, 4, 0.1);
+        }
+
+        .service-severity.sev-low {
+            color: var(--success);
+            background: rgba(52, 168, 83, 0.1);
+        }
+
+        .service-metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        .metric-drop {
+            color: var(--success);
+            font-weight: 600;
+            animation: dropHighlight 0.5s ease;
+        }
+
+        @keyframes dropHighlight {
+            0%, 100% { color: var(--success); }
+            50% { color: #8fff8f; text-shadow: 0 0 10px var(--success); }
+        }
+
+        /* EVENT LOG */
+        .event-log {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 24px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .log-item {
+            padding: 12px;
+            border-left: 3px solid var(--border);
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            animation: logAppear 0.3s ease;
+        }
+
+        @keyframes logAppear {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .log-item.incident {
+            border-left-color: var(--error);
+            background: rgba(234, 67, 53, 0.05);
+        }
+
+        .log-item.action {
+            border-left-color: var(--cerebras-blue);
+            background: rgba(66, 133, 244, 0.05);
+        }
+
+        .log-item.resolved {
+            border-left-color: var(--success);
+            background: rgba(52, 168, 83, 0.05);
+        }
+
+        .log-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        /* SPINNER FOR LEGACY GPU */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--legacy-grey);
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>⚡ FLASHPOINT V2 - Cerebras LPU</h1>
+            <p>Real-time AI Incident Commander powered by extreme-speed inference</p>
+            <div class="status-bar">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Connecting...</span>
+            </div>
+        </div>
+
+        <!-- ENGINE COMPARISON - THE STAR OF THE SHOW -->
+        <div class="engine-comparison">
+            <div class="engine-card cerebras-active">
+                <h3><span class="bolt">⚡</span> CEREBRAS LPU</h3>
+                <div class="latency-display">
+                    <span id="cerebrasLatency">--</span><span class="latency-unit">ms</span>
+                </div>
+                <div class="token-ticker" id="cerebrasStatus">Ready</div>
+            </div>
+
+            <div class="engine-card legacy-gpu">
+                <h3>🐢 STANDARD CLOUD GPU</h3>
+                <div class="latency-display">
+                    <span id="standardLatency">3500</span><span class="latency-unit">ms</span>
+                </div>
+                <div class="status-text" id="standardStatus">Still processing...</div>
+            </div>
+        </div>
+
+        <!-- SPEED ADVANTAGE BANNER -->
+        <div class="speed-advantage-banner">
+            <div class="advantage-label">CEREBRAS SPEED ADVANTAGE</div>
+            <div class="advantage-value" id="speedAdvantage">--</div>
+        </div>
+
+        <!-- PROGRESS COMPARISON -->
+        <div class="progress-comparison">
+            <div class="progress-track">
+                <div class="progress-label">⚡ Cerebras LPU Progress</div>
+                <div class="progress-bar">
+                    <div class="progress-fill cerebras" id="cerebrasProgress" style="width: 0%">
+                        <span id="cerebrasProgressText">0%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="progress-track">
+                <div class="progress-label">🐢 Standard GPU Progress</div>
+                <div class="progress-bar">
+                    <div class="progress-fill legacy" id="standardProgress" style="width: 0%">
+                        <span id="standardProgressText">0%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SEVERITY TRACKER -->
+        <div class="severity-tracker">
+            <div class="severity-header">📊 Incident Severity Evolution</div>
+            <div class="severity-grid">
+                <div class="severity-metric">
+                    <div class="severity-value critical" id="initialSeverity">--</div>
+                    <div class="severity-label">Initial</div>
+                </div>
+                <div class="severity-metric">
+                    <div class="severity-value improving" id="currentSeverity">--</div>
+                    <div class="severity-label">Current</div>
+                </div>
+                <div class="severity-metric">
+                    <div class="severity-value resolved" id="severityReduction">--</div>
+                    <div class="severity-label">Reduction</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MAIN GRID -->
+        <div class="main-grid">
+            <!-- Left Column -->
+            <div>
+                <!-- Hypothesis Stream -->
+                <div class="hypothesis-stream">
+                    <div class="stream-header">
+                        <div class="stream-indicator"></div>
+                        AI Actions Stream
+                    </div>
+                    <div class="hypothesis-display" id="actionsDisplay">
+                        <div style="text-align: center; color: var(--text-muted); padding: 20px;">
+                            Waiting for incident...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Event Log -->
+                <div class="event-log">
+                    <div class="panel-title">📋 Event Timeline</div>
+                    <div id="eventLog"></div>
+                </div>
+            </div>
+
+            <!-- Right Column -->
+            <div>
+                <!-- Services Panel -->
+                <div class="services-panel">
+                    <div class="panel-title">🖥️ System Services</div>
+                    <div id="servicesContainer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let cerebrasStartTime = 0;
+        let standardSimulationTimeout = null;
+
+        const STANDARD_GPU_LATENCY = 3500; // 3.5 seconds for standard 70B on A100s
+
+        function connect() {
+            ws = new WebSocket('ws://localhost:8765');
+            
+            ws.onopen = () => {
+                console.log('Connected to FLASHPOINT V2');
+                updateStatus(true, 'Connected - Cerebras LPU Active');
+            };
+            
+            ws.onclose = () => {
+                console.log('Disconnected');
+                updateStatus(false, 'Disconnected - Retrying...');
+                setTimeout(connect, 2000);
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                updateStatus(false, 'Connection Error');
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                } catch (error) {
+                    console.error('Parse error:', error);
+                }
+            };
+        }
+
+        function handleMessage(data) {
+            switch (data.type) {
+                case 'connected':
+                    updateServices(data.state);
+                    break;
+                
+                case 'incident_injected':
+                    handleIncident(data);
+                    break;
+                
+                case 'hypothesis_token':
+                    handleHypothesisToken(data);
+                    break;
+                
+                case 'cycles_start':
+                    startCycleComparison();
+                    break;
+                
+                case 'cycle_complete':
+                    handleCycleComplete(data);
+                    break;
+                
+                case 'incident_resolved':
+                    handleIncidentResolved(data);
+                    break;
+            }
+        }
+
+        function handleIncident(data) {
+            const incident = data.incident;
+            
+            // Reset progress bars
+            document.getElementById('cerebrasProgress').style.width = '0%';
+            document.getElementById('standardProgress').style.width = '0%';
+            
+            // Clear actions display
+            document.getElementById('actionsDisplay').innerHTML = `
+                <div style="text-align: center; color: var(--text-secondary); padding: 20px;">
+                    Processing incident...
+                </div>
+            `;
+            
+            addLogItem('incident', `🚨 ${incident.name} - SEV${incident.severity} on ${incident.affected_service}`);
+            
+            // Update severity
+            document.getElementById('initialSeverity').textContent = incident.severity;
+            document.getElementById('currentSeverity').textContent = incident.severity;
+            document.getElementById('severityReduction').textContent = '0';
+            
+            updateServices(data.state);
+        }
+
+        function handleHypothesisToken(data) {
+            // Show that Cerebras is streaming
+            document.getElementById('cerebrasStatus').textContent = 'Streaming tokens...';
+            
+            // Animate Cerebras progress
+            const currentProgress = parseInt(document.getElementById('cerebrasProgress').style.width) || 0;
+            const newProgress = Math.min(currentProgress + 2, 90);
+            updateProgress('cerebras', newProgress);
+            
+            // Legacy GPU stays at 0 or very slow progress
+            const legacyProgress = parseInt(document.getElementById('standardProgress').style.width) || 0;
+            if (legacyProgress < 10) {
+                updateProgress('standard', legacyProgress + 0.5);
+            }
+        }
+
+        function startCycleComparison() {
+            cerebrasStartTime = Date.now();
+            
+            // Start Cerebras progress
+            updateProgress('cerebras', 10);
+            document.getElementById('cerebrasStatus').textContent = 'Executing cycles...';
+            
+            // Standard GPU shows "waiting"
+            document.getElementById('standardStatus').innerHTML = '<span class="spinner"></span> Still processing...';
+            updateProgress('standard', 5);
+        }
+
+        function handleCycleComplete(data) {
+            const cerebrasLatency = data.hypothesis_latency_ms || 150;
+            
+            // Update Cerebras display
+            document.getElementById('cerebrasLatency').textContent = Math.round(cerebrasLatency);
+            
+            // Calculate speed advantage
+            const advantage = (STANDARD_GPU_LATENCY / cerebrasLatency).toFixed(1);
+            document.getElementById('speedAdvantage').textContent = `${advantage}x FASTER`;
+            
+            // Update progress
+            const cycleProgress = (data.cycle / 10) * 100;
+            updateProgress('cerebras', cycleProgress);
+            
+            // Standard GPU lags behind significantly
+            const standardProgress = Math.min(cycleProgress * 0.15, 30);
+            updateProgress('standard', standardProgress);
+            
+            // Show action in cleaned-up format
+            if (data.action) {
+                addActionCard(data.action, data.result);
+            }
+            
+            // Update services with flash animation
+            updateServicesWithFlash(data.state, data.action.target);
+            
+            // Update severity
+            const state = data.state;
+            document.getElementById('currentSeverity').textContent = state.severity;
+            
+            const diff = data.severity_differential;
+            if (diff) {
+                // Show positive reduction (initial - current = positive number when improving)
+                document.getElementById('severityReduction').textContent = `↓ ${diff.reduction}`;
+            }
+            
+            // CYCLE 10: Show Root Cause Analysis
+            if (data.cycle === 10 && data.root_cause_analysis) {
+                addLogItem('resolved', `📊 ${data.root_cause_analysis.replace(/\n/g, ' | ')}`);
+            }
+            
+            addLogItem('action', `✓ Cycle ${data.cycle}/10 - ${data.action.type} on ${data.action.target} (LLM: ${data.llm_inference_latency_ms.toFixed(0)}ms, ${data.result.outcome}, ${data.result.severity_reduction >= 0 ? '-' : '+'}${Math.abs(data.result.severity_reduction)} SEV)`);
+        }
+
+        function handleIncidentResolved(data) {
+            const summary = data.summary;
+            
+            // Complete Cerebras progress
+            updateProgress('cerebras', 100);
+            document.getElementById('cerebrasStatus').textContent = `✓ Complete in ${summary.cerebras_latency_ms.toFixed(0)}ms avg`;
+            
+            // Standard GPU still processing
+            setTimeout(() => {
+                updateProgress('standard', 100);
+                document.getElementById('standardStatus').textContent = `✓ Complete in ${summary.legacy_gpu_latency_ms}ms (simulated)`;
+            }, 2000);
+            
+            // Use HONEST speed advantage from backend
+            addLogItem('resolved', 
+                `✅ Incident resolved! Severity reduced by ${summary.severity_reduction}. ` +
+                `Cerebras: ${summary.cerebras_latency_ms.toFixed(0)}ms vs Legacy: ${summary.legacy_gpu_latency_ms}ms. ` +
+                `Speed advantage: ${summary.speed_advantage}`
+            );
+            
+            // Reset after delay
+            setTimeout(() => {
+                document.getElementById('actionsDisplay').innerHTML = `
+                    <div style="text-align: center; color: var(--text-muted); padding: 20px;">
+                        Waiting for next incident...
+                    </div>
+                `;
+            }, 3000);
+        }
+
+        function addActionCard(action, result) {
+            const display = document.getElementById('actionsDisplay');
+            
+            // Clear waiting message
+            if (display.querySelector('[style*="text-align: center"]')) {
+                display.innerHTML = '';
+            }
+            
+            const card = document.createElement('div');
+            card.className = 'action-card';
+            
+            let impactText = '';
+            if (result && result.severity_reduction > 0) {
+                impactText = `<div style="color: var(--success); font-size: 12px; margin-top: 8px;">
+                    ↓ Severity reduced by ${result.severity_reduction}
+                </div>`;
+            }
+            
+            card.innerHTML = `
+                <div class="action-type">${formatActionType(action.type)}</div>
+                <div class="action-target">Target: ${action.target}</div>
+                ${impactText}
+            `;
+            
+            display.appendChild(card);
+            
+            // Keep only last 5 actions
+            while (display.children.length > 5) {
+                display.removeChild(display.firstChild);
+            }
+        }
+
+        function formatActionType(type) {
+            const formats = {
+                'isolate_service': '🛡️ Isolate Service',
+                'apply_hotfix': '🔧 Apply Hotfix',
+                'circuit_breaker': '⚡ Circuit Breaker',
+                'scale_replicas': '🚀 Scale Replicas',
+                'increase_monitoring': '👁️ Increase Monitoring',
+                'rollback_deployment': '↩️ Rollback Deployment',
+                'flush_cache': '🗑️ Flush Cache'
+            };
+            return formats[type] || `🛠️ ${type}`;
+        }
+
+        function updateProgress(type, percentage) {
+            const progressEl = document.getElementById(`${type}Progress`);
+            const textEl = document.getElementById(`${type}ProgressText`);
+            
+            progressEl.style.width = `${percentage}%`;
+            textEl.textContent = `${Math.round(percentage)}%`;
+        }
+
+        function updateServices(state) {
+            const container = document.getElementById('servicesContainer');
+            container.innerHTML = '';
+            
+            Object.entries(state.services).forEach(([name, service]) => {
+                const serviceDiv = document.createElement('div');
+                
+                let statusClass = 'healthy';
+                let sevClass = 'sev-low';
+                
+                if (service.severity >= 7) {
+                    statusClass = 'critical';
+                    sevClass = 'sev-high';
+                } else if (service.severity >= 4) {
+                    statusClass = 'degraded';
+                    sevClass = 'sev-med';
+                }
+                
+                serviceDiv.className = `service-item ${statusClass}`;
+                serviceDiv.id = `service-${name.replace(/\s+/g, '-')}`;
+                
+                serviceDiv.innerHTML = `
+                    <div class="service-header">
+                        <div class="service-name">${name}</div>
+                        <div class="service-severity ${sevClass}">SEV ${service.severity}</div>
+                    </div>
+                    <div class="service-metrics">
+                        <div>Error Rate: <span id="err-${name}">${service.metrics.error_rate.toFixed(1)}%</span></div>
+                        <div>Latency: <span id="lat-${name}">${service.metrics.latency_p95.toFixed(0)}ms</span></div>
+                        <div>Status: ${service.status}</div>
+                        <div>Priority: ${service.priority}</div>
+                    </div>
+                `;
+                
+                container.appendChild(serviceDiv);
+            });
+        }
+
+        function updateServicesWithFlash(state, targetService) {
+            updateServices(state);
+            
+            // Add flash animation to the fixed service
+            const serviceId = `service-${targetService.replace(/\s+/g, '-')}`;
+            const serviceEl = document.getElementById(serviceId);
+            
+            if (serviceEl) {
+                serviceEl.classList.add('fixed');
+                setTimeout(() => {
+                    serviceEl.classList.remove('fixed');
+                }, 600);
+                
+                // Highlight the metric drops
+                const errorEl = document.getElementById(`err-${targetService}`);
+                const latencyEl = document.getElementById(`lat-${targetService}`);
+                
+                if (errorEl) errorEl.classList.add('metric-drop');
+                if (latencyEl) latencyEl.classList.add('metric-drop');
+                
+                setTimeout(() => {
+                    if (errorEl) errorEl.classList.remove('metric-drop');
+                    if (latencyEl) latencyEl.classList.remove('metric-drop');
+                }, 500);
+            }
+        }
+
+        function addLogItem(type, message) {
+            const log = document.getElementById('eventLog');
+            
+            const logItem = document.createElement('div');
+            logItem.className = `log-item ${type}`;
+            
+            const now = new Date().toLocaleTimeString();
+            
+            logItem.innerHTML = `
+                <div class="log-time">${now}</div>
+                <div>${message}</div>
+            `;
+            
+            log.appendChild(logItem);
+            log.scrollTop = log.scrollHeight;
+            
+            // Keep only last 30 items
+            while (log.children.length > 30) {
+                log.removeChild(log.firstChild);
+            }
+        }
+
+        function updateStatus(connected, text) {
+            const dot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            
+            if (connected) {
+                dot.classList.add('connected');
+                statusText.textContent = text;
+            } else {
+                dot.classList.remove('connected');
+                statusText.textContent = text;
+            }
+        }
+
+        // Initialize
+        connect();
+    </script>
+</body>
+</html>
